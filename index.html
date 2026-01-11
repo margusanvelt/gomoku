@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Gomoku - AI Edition</title>
     <style>
         :root {
@@ -31,6 +31,7 @@
             padding: 20px 0;
             overflow-x: hidden;
             transition: background 0.5s ease;
+            touch-action: manipulation;
         }
 
         body::before {
@@ -83,7 +84,6 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.4);
             border: 4px solid #8b5e34;
             z-index: 5;
-            transition: background-color 0.4s, border-color 0.4s;
         }
 
         #board { display: grid; grid-template-columns: repeat(15, 30px); grid-template-rows: repeat(15, 30px); }
@@ -94,7 +94,6 @@
             position: absolute; 
             background-color: var(--line-color); 
             opacity: 0.6; 
-            transition: background-color 0.4s; 
             pointer-events: none;
         }
         .cell::before { width: 100%; height: 1px; top: 50%; left: 0; }
@@ -153,7 +152,7 @@
         .modal-content { background: white; padding: 30px; border-radius: 15px; text-align: center; width: 340px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 
         #minigame-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #2d3436; z-index: 1000; flex-direction: column; align-items: center; justify-content: center; }
-        #minigame-canvas { background: #1a1a1a; border: 4px solid #fff; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #minigame-canvas { background: #1a1a1a; border: 4px solid #fff; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.5); cursor: crosshair; }
         .minigame-title { color: white; margin-bottom: 10px; font-size: 1.8rem; font-weight: bold; }
 
         @media (max-width: 500px) {
@@ -242,6 +241,20 @@
     </div>
 
     <script>
+        /**
+         * -------------------------------------------------------------------------
+         * DIFFICULTY CONFIGURATION - CHANGE SPEEDS HERE
+         * -------------------------------------------------------------------------
+         * Increase numbers for speed/spawn rates to make games harder/faster.
+         */
+        const GAME_SPEEDS = {
+            otter: { fallSpeed: 1.2, spawnRate: 0.035 },     // Otter Catch speed and spawn
+            reflex: { spawnRate: 85, fadeSpeed: 0.8 },      // Higher fadeSpeed = faster disappearance
+            void: { laserSpeed: 2.5, spawnRate: 70 },       // Laser speed and spawn frequency
+            meteor: { flightSpeed: 2.8, spawnRate: 50 }     // Meteor speed and spawn frequency
+        };
+        /** ------------------------------------------------------------------------- **/
+
         const SIZE = 15;
         const WIN_GAIN = 100;
         const LOSS_PENALTY = 25;
@@ -367,7 +380,7 @@
         function renderStones() {
             const cells = boardElement.children;
             for (let r = 0; r < SIZE; r++) {
-                for (let c = 0; c < SIZE; c++) {
+                for (let c = 0; r < SIZE && c < SIZE; c++) {
                     const cell = cells[r * SIZE + c];
                     cell.innerHTML = '';
                     if (boardState[r][c]) {
@@ -479,7 +492,7 @@
             endGame('draw', 0);
         }
 
-        // --- MINIGAME LOGIC (UPDATED PACING & METEOR STRIKE) ---
+        // --- MINIGAME LOGIC ---
         let minigameActive = false;
         let miniId = null;
         let currentMiniGameType = null; 
@@ -489,59 +502,23 @@
         let miniScore = 0;
         let miniGameOver = false;
 
-        // Shared variables
-        let mouseX = 200;
-        let mouseY = 480;
-
-        // Otter Catch specific
-        let miniOtterX = 200;
-        let miniItems = [];
-        const OTTER_SPEED = 0.6; 
-        const OTTER_SPAWN = 0.02; 
-
-        // Reflex specific
-        let reflexTargets = [];
-        let reflexTimer = 0;
-        let reflexSpawnRate = 120; 
-        const REFLEX_DECAY = 0.6; 
-
-        // Avoid the Void specific
-        let voidLasers = [];
-        let voidTimer = 0;
-        const VOID_SPEED = 1.6; // SLIGHTLY SLOWER
-
-        // Meteor Strike specific
-        let meteors = [];
-        let meteorSpawnTimer = 0;
-        let shieldAngle = 0;
+        let mouseX = 200, mouseY = 480;
+        let miniItems = [], reflexTargets = [], voidLasers = [], meteors = [];
+        let reflexTimer = 0, voidTimer = 0, meteorSpawnTimer = 0;
+        let shieldAngle = 0, miniOtterX = 200;
 
         function startRandomMinigame() {
             minigameActive = true;
             document.getElementById('minigame-overlay').style.display = 'flex';
-            
             const types = ['otter', 'reflex', 'void', 'meteor'];
             currentMiniGameType = types[Math.floor(Math.random() * types.length)];
-            
             resetMiniState();
             
-            const titles = {
-                otter: "Otter Catch",
-                reflex: "Stone Reflex",
-                void: "Avoid the Void",
-                meteor: "Meteor Strike"
-            };
-            const instructions = {
-                otter: "Catch stones. Avoid bombs!",
-                reflex: "Click stones before they fade. Don't click bombs!",
-                void: "Navigate through the laser gaps!",
-                meteor: "Rotate shield with mouse. Deflect the red meteors!"
-            };
+            const titles = { otter: "Otter Catch", reflex: "Stone Reflex", void: "Avoid the Void", meteor: "Meteor Strike" };
+            const inst = { otter: "Catch stones. Avoid bombs!", reflex: "Tap stones quickly! Avoid bombs.", void: "Navigate through the laser gaps!", meteor: "Rotate shield with mouse/touch to protect center!" };
 
             document.getElementById('minigame-header-title').textContent = titles[currentMiniGameType];
-            document.getElementById('minigame-instructions').textContent = instructions[currentMiniGameType];
-            
-            miniCanvas.style.cursor = currentMiniGameType === 'reflex' ? 'crosshair' : 'none';
-            
+            document.getElementById('minigame-instructions').textContent = inst[currentMiniGameType];
             miniLoop();
         }
 
@@ -552,24 +529,15 @@
         }
 
         function resetMiniState() {
-            miniScore = 0;
-            miniGameOver = false;
-            miniItems = [];
-            reflexTargets = [];
-            voidLasers = [];
-            meteors = [];
-            reflexTimer = 0;
-            voidTimer = 0;
-            meteorSpawnTimer = 0;
-            reflexSpawnRate = 120;
+            miniScore = 0; miniGameOver = false;
+            miniItems = []; reflexTargets = []; voidLasers = []; meteors = [];
+            reflexTimer = 0; voidTimer = 0; meteorSpawnTimer = 0;
             miniOtterX = 200;
         }
 
         function miniLoop() {
             if (!minigameActive) return;
             mctx.clearRect(0, 0, 400, 500);
-
-            // Background
             mctx.fillStyle = "#1e272e";
             mctx.fillRect(0,0,400,500);
 
@@ -578,7 +546,6 @@
             else if (currentMiniGameType === 'void') updateVoid();
             else if (currentMiniGameType === 'meteor') updateMeteorStrike();
 
-            // Shared Score Display
             mctx.fillStyle = "white";
             mctx.font = "bold 20px Arial";
             mctx.textAlign = 'left';
@@ -593,25 +560,24 @@
                 mctx.fillText("GAME OVER", 200, 230);
                 mctx.font = "20px Arial";
                 mctx.fillText(`Final Score: ${Math.floor(miniScore)}`, 200, 270);
-                mctx.fillText("Click anywhere to restart", 200, 310);
+                mctx.fillText("Tap anywhere to restart", 200, 310);
             }
-
             miniId = requestAnimationFrame(miniLoop);
         }
 
         function updateOtterCatch() {
-            if (!miniGameOver && Math.random() < OTTER_SPAWN) {
+            if (!miniGameOver && Math.random() < GAME_SPEEDS.otter.spawnRate) {
                 miniItems.push({
                     x: Math.random() * 360 + 20,
                     y: -20,
-                    speed: (OTTER_SPEED + Math.random() * 1.5), 
+                    speed: (GAME_SPEEDS.otter.fallSpeed + Math.random() * 2), 
                     type: Math.random() < 0.2 ? 'bomb' : 'stone'
                 });
             }
             miniItems.forEach((item, index) => {
                 item.y += item.speed;
-                mctx.font = item.type === 'bomb' ? '30px serif' : '25px serif';
                 mctx.textAlign = 'center';
+                mctx.font = item.type === 'bomb' ? '30px serif' : '25px serif';
                 mctx.fillText(item.type === 'bomb' ? '💣' : '🌑', item.x, item.y);
                 if (item.y > 440 && item.y < 480 && Math.abs(item.x - miniOtterX) < 35) {
                     if (item.type === 'bomb') miniGameOver = true;
@@ -620,24 +586,22 @@
                 if (item.y > 520) miniItems.splice(index, 1);
             });
             mctx.font = '50px serif';
-            mctx.textAlign = 'center';
             mctx.fillText('🦦', miniOtterX, 480);
         }
 
         function updateReflex() {
             reflexTimer++;
-            if (!miniGameOver && reflexTimer % Math.floor(reflexSpawnRate) === 0) {
+            if (!miniGameOver && reflexTimer % Math.floor(GAME_SPEEDS.reflex.spawnRate) === 0) {
                 reflexTargets.push({
                     x: Math.random() * 300 + 50,
                     y: Math.random() * 350 + 80,
                     life: 100,
-                    type: Math.random() < 0.2 ? 'bomb' : 'stone',
-                    size: 30 + Math.random() * 20
+                    type: Math.random() < 0.15 ? 'bomb' : 'stone',
+                    size: 35 + Math.random() * 20
                 });
-                if (reflexSpawnRate > 40) reflexSpawnRate *= 0.98;
             }
             reflexTargets.forEach((t, index) => {
-                t.life -= REFLEX_DECAY;
+                t.life -= GAME_SPEEDS.reflex.fadeSpeed;
                 if (t.life <= 0) {
                     if (t.type === 'stone') miniGameOver = true;
                     reflexTargets.splice(index, 1);
@@ -657,17 +621,16 @@
 
         function updateVoid() {
             voidTimer++;
-            if (!miniGameOver && voidTimer % 90 === 0) {
-                const gapSize = Math.max(90, 130 - miniScore); // SLIGHTLY LARGER GAP
+            if (!miniGameOver && voidTimer % GAME_SPEEDS.void.spawnRate === 0) {
+                const gapSize = Math.max(80, 120 - miniScore);
                 const gap = Math.random() * (400 - gapSize - 40) + 20;
-                voidLasers.push({ y: -20, gap: gap, gapSize: gapSize });
+                voidLasers.push({ y: -20, gap: gap, gapSize: gapSize, passed: false });
             }
             voidLasers.forEach((l, index) => {
-                l.y += VOID_SPEED; // SLIGHTLY SLOWER
+                l.y += GAME_SPEEDS.void.laserSpeed;
                 mctx.fillStyle = "#ff4757";
                 mctx.fillRect(0, l.y, l.gap, 8);
                 mctx.fillRect(l.gap + l.gapSize, l.y, 400 - (l.gap + l.gapSize), 8);
-                
                 if (l.y > mouseY - 10 && l.y < mouseY + 10) {
                     if (mouseX < l.gap || mouseX > l.gap + l.gapSize) miniGameOver = true;
                     else if (!l.passed) { l.passed = true; miniScore += 5; }
@@ -679,105 +642,78 @@
         }
 
         function updateMeteorStrike() {
-            const centerX = 200, centerY = 250;
-            const shieldRadius = 60;
-            const planetRadius = 30;
-
-            // Rotate shield based on mouse
-            shieldAngle = Math.atan2(mouseY - centerY, mouseX - centerX);
-
-            // Spawn Meteors
+            const cx = 200, cy = 250, sr = 60, pr = 30;
+            shieldAngle = Math.atan2(mouseY - cy, mouseX - cx);
             meteorSpawnTimer++;
-            if (!miniGameOver && meteorSpawnTimer % 75 === 0) { // SLIGHTLY SLOWER SPAWN
-                const angle = Math.random() * Math.PI * 2;
+            if (!miniGameOver && meteorSpawnTimer % GAME_SPEEDS.meteor.spawnRate === 0) {
+                const a = Math.random() * Math.PI * 2;
                 meteors.push({
-                    x: centerX + Math.cos(angle) * 400,
-                    y: centerY + Math.sin(angle) * 400,
-                    speed: 1.2 + Math.random() * 1.0, // SLIGHTLY SLOWER METEORS
-                    angle: angle + Math.PI // Direction to center
+                    x: cx + Math.cos(a) * 400,
+                    y: cy + Math.sin(a) * 400,
+                    speed: GAME_SPEEDS.meteor.flightSpeed + Math.random(),
+                    angle: a + Math.PI
                 });
             }
-
-            // Draw Planet
             mctx.fillStyle = "#2ecc71";
-            mctx.beginPath(); mctx.arc(centerX, centerY, planetRadius, 0, Math.PI*2); mctx.fill();
-            mctx.strokeStyle = "rgba(255,255,255,0.3)";
-            mctx.beginPath(); mctx.arc(centerX, centerY, planetRadius + 5, 0, Math.PI*2); mctx.stroke();
+            mctx.beginPath(); mctx.arc(cx, cy, pr, 0, Math.PI*2); mctx.fill();
+            mctx.strokeStyle = "#3498db"; mctx.lineWidth = 10; mctx.lineCap = "round";
+            mctx.beginPath(); mctx.arc(cx, cy, sr, shieldAngle - 0.5, shieldAngle + 0.5); mctx.stroke();
 
-            // Draw Shield Arc
-            mctx.strokeStyle = "#3498db";
-            mctx.lineWidth = 10; // THICKER SHIELD
-            mctx.lineCap = "round";
-            mctx.beginPath();
-            mctx.arc(centerX, centerY, shieldRadius, shieldAngle - 0.5, shieldAngle + 0.5);
-            mctx.stroke();
-
-            // Update & Draw Meteors
             meteors.forEach((m, index) => {
                 m.x += Math.cos(m.angle) * m.speed;
                 m.y += Math.sin(m.angle) * m.speed;
-
-                const dist = Math.hypot(m.x - centerX, m.y - centerY);
-                
-                // Collision with shield
-                if (dist < shieldRadius + 5 && dist > shieldRadius - 5) {
-                    const meteorAngle = Math.atan2(m.y - centerY, m.x - centerX);
-                    let angleDiff = Math.abs(meteorAngle - shieldAngle);
-                    while(angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - Math.PI * 2);
-
-                    if (angleDiff < 0.6) {
-                        miniScore += 2;
-                        meteors.splice(index, 1);
-                        return;
-                    }
+                const d = Math.hypot(m.x - cx, m.y - cy);
+                if (d < sr + 5 && d > sr - 5) {
+                    const ma = Math.atan2(m.y - cy, m.x - cx);
+                    let diff = Math.abs(ma - shieldAngle);
+                    while(diff > Math.PI) diff = Math.abs(diff - Math.PI * 2);
+                    if (diff < 0.6) { miniScore += 2; meteors.splice(index, 1); return; }
                 }
-
-                // Collision with planet
-                if (dist < planetRadius) {
-                    miniGameOver = true;
-                }
-
+                if (d < pr) miniGameOver = true;
                 mctx.fillStyle = "#e74c3c";
                 mctx.beginPath(); mctx.arc(m.x, m.y, 6, 0, Math.PI*2); mctx.fill();
             });
         }
 
-        // Input Handling
-        miniCanvas.addEventListener('mousemove', e => {
+        // Shared Input for all games
+        function handleMiniInput(e) {
             if (!minigameActive) return;
             const rect = miniCanvas.getBoundingClientRect();
-            mouseX = Math.max(0, Math.min(400, e.clientX - rect.left));
-            mouseY = Math.max(0, Math.min(500, e.clientY - rect.top));
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             
+            mouseX = Math.max(0, Math.min(400, clientX - rect.left));
+            mouseY = Math.max(0, Math.min(500, clientY - rect.top));
             if (currentMiniGameType === 'otter') miniOtterX = mouseX;
-        });
 
-        miniCanvas.addEventListener('mousedown', e => {
-            if (!minigameActive) return;
-            if (miniGameOver) { resetMiniState(); return; }
-            if (currentMiniGameType === 'reflex') {
-                const rect = miniCanvas.getBoundingClientRect();
-                const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-                let hit = false;
-                reflexTargets.forEach((t, index) => {
-                    if (Math.hypot(mx - t.x, my - t.y) < t.size) {
-                        hit = true;
-                        if (t.type === 'bomb') miniGameOver = true;
-                        else { miniScore += 5; reflexTargets.splice(index, 1); }
-                    }
-                });
-                if (!hit && !miniGameOver) miniScore = Math.max(0, miniScore - 2);
+            // Reflex logic needs specific tap check
+            if ((e.type === 'mousedown' || e.type === 'touchstart')) {
+                if (miniGameOver) { resetMiniState(); return; }
+                if (currentMiniGameType === 'reflex') {
+                    let hit = false;
+                    reflexTargets.forEach((t, index) => {
+                        if (Math.hypot(mouseX - t.x, mouseY - t.y) < t.size) {
+                            hit = true;
+                            if (t.type === 'bomb') miniGameOver = true;
+                            else { miniScore += 5; reflexTargets.splice(index, 1); }
+                        }
+                    });
+                    if (!hit && !miniGameOver) miniScore = Math.max(0, miniScore - 2);
+                }
             }
-        });
+        }
+
+        miniCanvas.addEventListener('mousemove', handleMiniInput);
+        miniCanvas.addEventListener('mousedown', handleMiniInput);
+        miniCanvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleMiniInput(e); }, {passive: false});
+        miniCanvas.addEventListener('touchmove', (e) => { e.preventDefault(); handleMiniInput(e); }, {passive: false});
 
         function launchOtters() {
             for (let i = 0; i < 12; i++) {
                 setTimeout(() => {
                     const o = document.createElement('div');
-                    o.className = 'otter-anim';
-                    o.textContent = '🦦';
-                    o.style.left = '-100px';
-                    o.style.top = Math.random() * 90 + 'vh';
+                    o.className = 'otter-anim'; o.textContent = '🦦';
+                    o.style.left = '-100px'; o.style.top = Math.random() * 90 + 'vh';
                     o.style.animation = `otter-run ${3 + Math.random() * 2}s linear forwards`;
                     fxContainer.appendChild(o);
                     setTimeout(() => o.remove(), 5000);
@@ -789,8 +725,7 @@
             for (let i = 0; i < 15; i++) {
                 setTimeout(() => {
                     const t = document.createElement('div');
-                    t.className = 'trophy-item';
-                    t.textContent = ['🏆','⭐','✨','🔥'][Math.floor(Math.random()*4)];
+                    t.className = 'trophy-item'; t.textContent = ['🏆','⭐','✨','🔥'][Math.floor(Math.random()*4)];
                     t.style.left = Math.random() * 90 + 'vw';
                     t.style.animation = `trophy-fall ${2 + Math.random() * 2}s linear forwards`;
                     fxContainer.appendChild(t);
@@ -815,20 +750,13 @@
 
         function resetGame() {
             boardState = Array(SIZE).fill(null).map(() => Array(SIZE).fill(null));
-            gameActive = true;
-            currentPlayer = 'black';
-            closeModals();
-            initBoard();
-            updateUI();
+            gameActive = true; currentPlayer = 'black';
+            closeModals(); initBoard(); updateUI();
         }
 
         function clearStats() {
-            const confirmed = window.confirm("Clear all points and names?");
-            if (confirmed) {
-                playerStats = { 
-                    black: { name: "Player 1", points: 0 }, 
-                    white: { name: isAiMode ? "AI Bot" : "Player 2", points: 0 } 
-                };
+            if (confirm("Clear all points and names?")) {
+                playerStats = { black: { name: "Player 1", points: 0 }, white: { name: isAiMode ? "AI Bot" : "Player 2", points: 0 } };
                 saveLocal(); updateUI();
             }
         }
@@ -836,7 +764,6 @@
         document.getElementById('reset-btn').onclick = resetGame;
         document.getElementById('giveup-btn').onclick = () => gameActive && endGame(currentPlayer === 'black' ? 'white' : 'black', WIN_GAIN);
         document.getElementById('draw-btn').onclick = offerDraw;
-
         window.onload = () => { initBoard(); updateUI(); };
     </script>
 </body>
